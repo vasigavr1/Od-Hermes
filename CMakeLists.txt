@@ -41,7 +41,7 @@ set(SOURCE_FILES_cr
         include/mica-herd/sizes.h
 
         include/hermes/util.h
-        include/hermes/config.h
+        include/hermes/depr_h_config.h
         include/utils/bit_vector.h
         include/utils/concur_ctrl.h
         src/CR/crKV.c)
@@ -79,7 +79,7 @@ set(SOURCE_FILES_hermes
         include/mica-herd/sizes.h
 
         include/hermes/util.h
-        include/hermes/config.h
+        include/hermes/depr_h_config.h
         include/utils/concur_ctrl.h
         include/utils/bit_vector.h
         include/hades/hades.h

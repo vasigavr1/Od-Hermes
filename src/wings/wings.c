@@ -3,10 +3,10 @@
 //
 
 #include <stdio.h>
-#include <config.h>
+#include <depr_h_config.h>
 #include <spacetime.h>
 #include <infiniband/verbs.h>
-#include <inline-util.h>
+#include <depr_h_inline_util.h>
 #include "../../include/wings/wings.h"
 
 // implement a Multicast / Unicast channel

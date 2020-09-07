@@ -1,11 +1,11 @@
 //
 // Created by akatsarakis on 04/05/18.
 //
-#include <config.h>
+#include <depr_h_config.h>
 #include <spacetime.h>
 #include "../../include/utils/concur_ctrl.h"
 #include <util.h>
-#include <inline-util.h>
+#include <depr_h_inline_util.h>
 
 /*
  * Initialize the spacetime using a Mica instances and adding the timestamps

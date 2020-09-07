@@ -5,7 +5,7 @@
 #include <getopt.h>
 #include <pthread.h>
 #include "spacetime.h"
-#include "config.h"
+#include "depr_h_config.h"
 #include "util.h"
 #include "../../include/utils/concur_ctrl.h"
 #include "hrd.h"

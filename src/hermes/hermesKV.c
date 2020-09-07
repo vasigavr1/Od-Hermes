@@ -3,7 +3,7 @@
 //
 
 #include <spacetime.h>
-#include <inline-util.h>
+#include <depr_h_inline_util.h>
 
 //////////////////////////////////////////////////
 /////////////////////// HERMES KVS (SPACETIME)

@@ -5,6 +5,7 @@
 #ifndef WINGS_INTERNAL_INLINES_H
 #define WINGS_INTERNAL_INLINES_H
 
+#include "../mica-herd/hrd.h"
 #include "wings_api.h"
 /// WARNING!!
 /// 	Functions starting with underscore (i.e. "_wings_*")

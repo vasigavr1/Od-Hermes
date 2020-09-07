@@ -4,7 +4,7 @@
 #define _GNU_SOURCE
 
 #include "spacetime.h"
-#include "inline-util.h"
+#include "depr_h_inline_util.h"
 #include "hrd.h"
 #include "util.h"
 

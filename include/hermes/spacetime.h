@@ -15,7 +15,7 @@
 #include "hrd.h"
 #include "mica.h"
 #include "../utils/concur_ctrl.h"
-#include "config.h"
+#include "depr_h_config.h"
 #include "../utils/bit_vector.h"
 
 #define SPACETIME_NUM_KEYS (1000 * 1000)

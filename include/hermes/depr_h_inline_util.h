@@ -8,7 +8,7 @@
 #include <infiniband/verbs.h>
 #include "../utils/concur_ctrl.h"
 #include "spacetime.h"
-#include "config.h"
+#include "depr_h_config.h"
 #include "util.h"
 #include "../hades/hades.h"
 

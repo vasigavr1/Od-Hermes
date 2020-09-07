@@ -2,7 +2,7 @@
 #include "../../include/utils/concur_ctrl.h"
 #include <time.h>
 #include "util.h"
-#include "inline-util.h"
+#include "depr_h_inline_util.h"
 
 ///
 #include "../../include/hades/hades.h"

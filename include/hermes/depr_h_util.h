@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "hrd.h"
-#include "config.h"
+#include "depr_h_config.h"
 #include "spacetime.h"
 
 struct worker_stats {

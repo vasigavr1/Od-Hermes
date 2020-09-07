@@ -22,7 +22,7 @@ src/Armonia/main
 /src/hermes/hermes
 /src/hades/hades
 /src/hermes/hermes-wings
-
+/build
 # ignore debug files
 /debug/*.txt
 # ignore traces
