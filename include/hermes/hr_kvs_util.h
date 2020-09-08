@@ -27,22 +27,27 @@ static inline void hr_local_inv(context_t *ctx,
   memcpy(kv_ptr->value, op->value,  VALUE_SIZE);
   unlock_seqlock(&kv_ptr->seqlock);
 
+  if (ENABLE_ASSERTIONS)
+    assert(w_rob->w_state == INVALID);
   w_rob->key = op->key;
   w_rob->version = new_version;
   w_rob->kv_ptr = kv_ptr;
+
+
   w_rob->l_id = hr_ctx->inserted_w_id + write_i;
 
   w_rob->val_len = op->val_len;
-  w_rob->acks_seen = 0;
   w_rob->sess_id = op->session_id;
   w_rob->w_state = SEMIVALID;
 
   if (ENABLE_ASSERTIONS)
     assert(hr_ctx->stalled[w_rob->sess_id]);
-
+  //my_printf(cyan, "W_rob insert sess %u write %lu, w_rob_i %u\n",
+  //          w_rob->sess_id, w_rob->l_id,
+  //          (hr_ctx->loc_w_rob->push_ptr + write_i) % hr_ctx->loc_w_rob->max_size);
 
   resp->type = KVS_PUT_SUCCESS;
-  fifo_incr_capacity(hr_ctx->w_rob);
+  fifo_incr_capacity(hr_ctx->loc_w_rob);
 }
 
 
@@ -80,7 +85,7 @@ static inline void hr_KVS_batch_op_trace(context_t *ctx, uint16_t op_num)
       KVS_local_read(kv_ptr[op_i], op[op_i].value_to_read, &resp[op_i].type, ctx->t_id);
     }
     else if (op[op_i].opcode == KVS_OP_PUT) {
-      hr_local_inv(ctx, kv_ptr[op_i], op, resp, write_i);
+      hr_local_inv(ctx, kv_ptr[op_i], &op[op_i], &resp[op_i], write_i);
       write_i++;
     }
     else if (ENABLE_ASSERTIONS) {

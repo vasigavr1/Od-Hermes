@@ -21,6 +21,7 @@ static inline void check_w_rob_in_insert_help(hr_ctx_t *hr_ctx,
     assert(op->key == w_rob->key);
     assert(w_rob->l_id == hr_ctx->inserted_w_id);
     assert(w_rob->w_state == SEMIVALID);
+    assert(w_rob->sess_id == op->session_id);
   }
 }
 
@@ -28,6 +29,7 @@ static inline void fill_inv(hr_inv_t *inv,
                             ctx_trace_op_t *op,
                             w_rob_t *w_rob)
 {
+  if (ENABLE_ASSERTIONS) assert(op->opcode == KVS_OP_PUT);
   memcpy(&inv->key, &op->key, KEY_SIZE);
   memcpy(inv->value, op->value, (size_t) VALUE_SIZE);
   inv->version = w_rob->version;
@@ -91,6 +93,8 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
 
     ctx_fill_trace_op(ctx, &trace[hr_ctx->trace_iter], &ops[op_i], working_session);
     hr_ctx->stalled[working_session] = true;
+    //printf("Session %d issues a %s \n", working_session,
+    // ops[op_i].opcode == KVS_OP_PUT ? "write" : "read");
 
     while (!pull_request_from_this_session(hr_ctx->stalled[working_session],
                                            (uint16_t) working_session, ctx->t_id)) {
@@ -125,17 +129,14 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
       continue;
     }
       // Local reads
-    else if (resp[i].type == KVS_GET_SUCCESS) {
-      if (ENABLE_ASSERTIONS) {
-        assert(USE_LIN_READS);
-      }
-    }
     else if (resp[i].type == KVS_LOCAL_GET_SUCCESS) {
+      //printf("Freeing sess %u \n", ops[i].session_id);
       signal_completion_to_client(ops[i].session_id, ops[i].index_to_req_array, ctx->t_id);
       hr_ctx->all_sessions_stalled = false;
       hr_ctx->stalled[ops[i].session_id] = false;
     }
     else { // WRITE
+      if (ENABLE_ASSERTIONS) assert(resp[i].type == KVS_PUT_SUCCESS);
       ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, &ops[i], 0);
     }
   }
@@ -158,10 +159,19 @@ static inline void hr_commit_writes(context_t *ctx)
     w_rob_t *w_rob = (w_rob_t *) get_fifo_pull_slot(&hr_ctx->w_rob[m_i]);
     while (w_rob->w_state == READY) {
       __builtin_prefetch(&w_rob->kv_ptr->seqlock, 0, 0);
-      ptrs_to_w_rob[update_op_i] = w_rob;
       w_rob->w_state = INVALID;
+      assert(update_op_i < HR_UPDATE_BATCH);
+      assert(m_i == ctx->m_id);
+      ptrs_to_w_rob[update_op_i] = w_rob;
+      //my_printf(green, "Commit sess %u write %lu, version: %lu \n",
+      //          w_rob->sess_id, hr_ctx->committed_w_id + update_op_i, w_rob->version);
+
       if (m_i == ctx->m_id) {
         uint16_t sess_id = w_rob->sess_id;
+        assert(w_rob->acks_seen == REM_MACH_NUM);
+        w_rob->acks_seen = 0;
+        assert(sess_id < SESSIONS_PER_THREAD);
+        assert(hr_ctx->stalled[sess_id]);
         signal_completion_to_client(sess_id,
                                     hr_ctx->index_to_req_array[sess_id],
                                     ctx->t_id);
@@ -169,16 +179,20 @@ static inline void hr_commit_writes(context_t *ctx)
         local_op_i++;
       }
       fifo_incr_pull_ptr(&hr_ctx->w_rob[m_i]);
+      fifo_decrem_capacity(&hr_ctx->w_rob[m_i]);
       w_rob = (w_rob_t *) get_fifo_pull_slot(&hr_ctx->w_rob[m_i]);
       update_op_i++;
     }
   }
 
   if (update_op_i > 0) {
-    hr_ctx->all_sessions_stalled = false;
+
     for (int w_i = 0; w_i < update_op_i; ++w_i) {
       w_rob_t *w_rob = ptrs_to_w_rob[w_i];
+
+      assert(w_rob->version > 0);
       assert(w_rob != NULL);
+
       mica_op_t *kv_ptr = w_rob->kv_ptr;
       lock_seqlock(&kv_ptr->seqlock);
       {
@@ -192,6 +206,7 @@ static inline void hr_commit_writes(context_t *ctx)
       unlock_seqlock(&kv_ptr->seqlock);
     }
     if (local_op_i > 0) {
+      hr_ctx->all_sessions_stalled = false;
       //ctx_insert_commit(ctx, COM_QP_ID, local_op_i, hr_ctx->committed_w_id);
       hr_ctx->committed_w_id += local_op_i;
     }
@@ -225,6 +240,9 @@ static inline void insert_inv_help(context_t *ctx, void* inv_ptr,
     fifo_set_push_backward_ptr(send_fifo, hr_ctx->loc_w_rob->push_ptr);
   }
 
+
+  //my_printf(yellow, "Sess %u Inserting inv %lu \n",
+  //       op->session_id, hr_ctx->inserted_w_id);
   // Bookkeeping
   w_rob->w_state = VALID;
   fifo_incr_push_ptr(hr_ctx->loc_w_rob);
@@ -322,14 +340,17 @@ static inline void hr_apply_acks(context_t *ctx,
     }
 
     w_rob_t *w_rob = (w_rob_t *) get_fifo_slot(hr_ctx->loc_w_rob, ack_ptr);
+    assert(w_rob->l_id == ack_ptr);
     w_rob->acks_seen++;
+    //printf("acks seen %u for %u \n", w_rob->acks_seen, ack_ptr);
     if (w_rob->acks_seen == REM_MACH_NUM) {
       if (ENABLE_ASSERTIONS) {
         qp_meta->outstanding_messages--;
         assert(w_rob->w_state == SENT);
       }
-//        printf("Worker %d valid ack %u/%u write at ptr %d with g_id %lu is ready \n",
-//               t_id, ack_i, ack_num,  ack_ptr, hr_ctx->g_id[ack_ptr]);
+      //if (DEBUG_ACKS)
+      //  printf("Worker %d, sess %u: valid ack %u/%u write at ptr %d is ready \n",
+      //         ctx->t_id, w_rob->sess_id, ack_i, ack_num,  ack_ptr);
       w_rob->w_state = READY;
 
     }
@@ -356,7 +377,8 @@ static inline bool ack_handler(context_t *ctx)
 
   per_qp_meta_t *com_qp_meta = &ctx->qp_meta[COM_QP_ID];
   com_qp_meta->credits[ack->m_id] = com_qp_meta->max_credits;
-
+  //my_printf(green, "Receiving ack for %lu, %u acks from m_id %u\n",
+  // ack->l_id, ack->ack_num, ack->m_id);
 
   if ((hr_ctx->loc_w_rob->capacity == 0 ) ||
       (pull_lid >= l_id && (pull_lid - l_id) >= ack_num))
