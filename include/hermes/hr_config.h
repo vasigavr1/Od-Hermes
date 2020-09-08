@@ -8,13 +8,15 @@
 
 #include <fifo.h>
 #include <hr_messages.h>
+#include <network_context.h>
 
-
+//#define HR_W_ROB_SIZE
 #define HR_TRACE_BATCH SESSIONS_PER_THREAD
 #define HR_PENDING_WRITES (SESSIONS_PER_THREAD + 1)
+#define HR_UPDATE_BATCH (HR_PENDING_WRITES * MACHINE_NUM)
 
 #define QP_NUM 3
-#define VAL_QP_ID 0
+#define INV_QP_ID 0
 #define ACK_QP_ID 1
 #define COM_QP_ID 2
 
@@ -28,13 +30,18 @@
 #define MICA_OP_SIZE_  (28 + ((MICA_VALUE_SIZE)))
 #define MICA_OP_PADDING_SIZE  (FIND_PADDING(MICA_OP_SIZE_))
 #define MICA_OP_SIZE  (MICA_OP_SIZE_ + MICA_OP_PADDING_SIZE)
+
+typedef enum{HR_INV, HR_V, HR_W} key_state_t;
+
 struct mica_op {
   // Cache-line -1
   uint8_t value[MICA_VALUE_SIZE];
   // Cache-line -2
   struct key key;
   seqlock_t seqlock;
-  uint64_t g_id;
+  uint64_t version;
+  uint8_t m_id;
+  uint8_t state;
   uint32_t key_id; // strictly for debug
   uint8_t padding[MICA_OP_PADDING_SIZE];
 };
@@ -44,19 +51,6 @@ struct mica_op {
 /*------------------------------------------------
  * ----------------TRACE----------------------------
  * ----------------------------------------------*/
-typedef struct hr_trace_op {
-  uint16_t session_id;
-  mica_key_t key;
-  uint8_t opcode;// if the opcode is 0, it has never been RMWed, if it's 1 it has
-  uint8_t val_len; // this represents the maximum value len
-  uint8_t value[VALUE_SIZE]; // if it's an RMW the first 4 bytes point to the entry
-  uint8_t *value_to_write;
-  uint8_t *value_to_read; //compare value for CAS/  addition argument for F&A
-  uint32_t index_to_req_array;
-  uint32_t real_val_len; // this is the value length the client is interested in
-} hr_trace_op_t;
-
-
 typedef struct hr_resp {
   uint8_t type;
 } hr_resp_t;
@@ -65,7 +59,7 @@ typedef struct hr_resp {
 /*------------------------------------------------
  * ----------------RESERVATION STATIONS-----------
  * ----------------------------------------------*/
-typedef enum op_state {INVALID, VALID, SENT, READY, SEND_COMMITTS} w_state_t;
+typedef enum op_state {INVALID, SEMIVALID, VALID, SENT, READY, SEND_COMMITTS} w_state_t;
 //typedef enum {NOT_USED, LOCAL_PREP, REMOTE_WRITE} source_t;
 //typedef struct ptrs_to_reads {
 //  uint16_t polled_reads;
@@ -76,17 +70,21 @@ typedef enum op_state {INVALID, VALID, SENT, READY, SEND_COMMITTS} w_state_t;
 
 typedef struct w_rob {
   uint64_t version;
-  uint16_t session_id;
+  uint64_t l_id;
+  mica_op_t *kv_ptr;
+  mica_key_t key;
+
+  uint16_t sess_id;
 
   w_state_t w_state;
   uint8_t m_id;
   uint8_t acks_seen;
+  uint8_t val_len;
   //uint32_t index_to_req_array;
   bool is_local;
   //hr_prepare_t *ptr_to_op;
-  mica_key_t key;
-  uint8_t value[VALUE_SIZE];
-  uint16_t w_rob_id;
+
+  //uint8_t value[VALUE_SIZE];
 
 } w_rob_t;
 
@@ -96,14 +94,16 @@ typedef struct w_rob {
 // A data structute that keeps track of the outstanding writes
 typedef struct hr_ctx {
   // reorder buffers
+  // One fifo per machine in the configuration
   fifo_t *w_rob;
+  fifo_t *loc_w_rob; //points in the w_rob
 
 
   trace_t *trace;
   uint32_t trace_iter;
   uint16_t last_session;
 
-  hr_trace_op_t *ops;
+  ctx_trace_op_t *ops;
   hr_resp_t *resp;
 
   //ptrs_to_r_t *ptrs_to_r;
@@ -127,13 +127,13 @@ typedef struct thread_stats { // 2 cache lines
   long long remotes_per_client;
   long long locals_per_client;
 
-  long long preps_sent;
+  long long invs_sent;
   long long acks_sent;
   long long coms_sent;
   long long writes_sent;
   uint64_t reads_sent;
 
-  long long preps_sent_mes_num;
+  long long inv_sent_mes_num;
   long long acks_sent_mes_num;
   long long coms_sent_mes_num;
   long long writes_sent_mes_num;
@@ -142,12 +142,12 @@ typedef struct thread_stats { // 2 cache lines
 
   long long received_coms;
   long long received_acks;
-  long long received_preps;
+  long long received_invs;
   long long received_writes;
 
   long long received_coms_mes_num;
   long long received_acks_mes_num;
-  long long received_preps_mes_num;
+  long long received_invs_mes_num;
   long long received_writes_mes_num;
 
 
@@ -155,7 +155,7 @@ typedef struct thread_stats { // 2 cache lines
   uint64_t total_writes; // Leader only
 
   uint64_t stalled_gid;
-  uint64_t stalled_ack_prep;
+  uint64_t stalled_ack_inv;
   uint64_t stalled_com_credit;
   //long long unused[3]; // padding to avoid false sharing
 } t_stats_t;
