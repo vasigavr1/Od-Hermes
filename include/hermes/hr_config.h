@@ -10,10 +10,11 @@
 #include <hr_messages.h>
 #include <network_context.h>
 
-//#define HR_W_ROB_SIZE
+#define HR_W_ROB_SIZE SESSIONS_PER_THREAD
 #define HR_TRACE_BATCH SESSIONS_PER_THREAD
 #define HR_PENDING_WRITES (SESSIONS_PER_THREAD + 1)
 #define HR_UPDATE_BATCH (HR_PENDING_WRITES * MACHINE_NUM)
+#define MAX_INCOMING_INV (REM_MACH_NUM * HR_W_ROB_SIZE)
 
 #define QP_NUM 3
 #define INV_QP_ID 0
@@ -27,11 +28,12 @@
  * ----------------KVS----------------------------
  * ----------------------------------------------*/
 #define MICA_VALUE_SIZE (VALUE_SIZE + (FIND_PADDING_CUST_ALIGN(VALUE_SIZE, 32)))
-#define MICA_OP_SIZE_  (28 + ((MICA_VALUE_SIZE)))
+#define MICA_OP_SIZE_  (32 + ((MICA_VALUE_SIZE)))
 #define MICA_OP_PADDING_SIZE  (FIND_PADDING(MICA_OP_SIZE_))
 #define MICA_OP_SIZE  (MICA_OP_SIZE_ + MICA_OP_PADDING_SIZE)
 
-typedef enum{HR_INV, HR_V, HR_W} key_state_t;
+
+typedef enum{HR_V = 0, HR_INV, HR_INV_T, HR_W} key_state_t;
 
 struct mica_op {
   // Cache-line -1
@@ -42,6 +44,7 @@ struct mica_op {
   uint64_t version;
   uint8_t m_id;
   uint8_t state;
+  uint8_t unused[2];
   uint32_t key_id; // strictly for debug
   uint8_t padding[MICA_OP_PADDING_SIZE];
 };
@@ -68,11 +71,18 @@ typedef enum op_state {INVALID, SEMIVALID, VALID, SENT, READY, SEND_COMMITTS} w_
 //  bool *coalesce_r_rep;
 //} ptrs_to_r_t;
 
+typedef struct ptrs_to_invs {
+  uint16_t polled_invs;
+  hr_inv_t **ptr_to_ops;
+  hr_inv_mes_t **ptr_to_mes;
+} ptrs_to_inv_t;
+
+
 typedef struct w_rob {
   uint64_t version;
-  uint64_t l_id;
+  uint64_t l_id; // TODO not needed
   mica_op_t *kv_ptr;
-  mica_key_t key;
+  mica_key_t key; // TODO not needed
 
   uint16_t sess_id;
 
@@ -82,6 +92,7 @@ typedef struct w_rob {
   uint8_t val_len;
   //uint32_t index_to_req_array;
   bool is_local;
+  bool inv_applied;
   //hr_prepare_t *ptr_to_op;
 
   //uint8_t value[VALUE_SIZE];
@@ -98,6 +109,7 @@ typedef struct hr_ctx {
   fifo_t *w_rob;
   fifo_t *loc_w_rob; //points in the w_rob
 
+  ptrs_to_inv_t *ptrs_to_inv;
 
   trace_t *trace;
   uint32_t trace_iter;
@@ -107,8 +119,8 @@ typedef struct hr_ctx {
   hr_resp_t *resp;
 
   //ptrs_to_r_t *ptrs_to_r;
-  uint64_t inserted_w_id;
-  uint64_t committed_w_id;
+  uint64_t *inserted_w_id;
+  uint64_t *committed_w_id;
 
   uint64_t local_r_id;
 

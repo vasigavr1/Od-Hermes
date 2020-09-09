@@ -13,13 +13,14 @@
 //#include "hr_reserve_stations.h"
 //#include "hr_kvs_util.h"
 
-static inline void check_w_rob_in_insert_help(hr_ctx_t *hr_ctx,
+static inline void check_w_rob_in_insert_help(context_t *ctx,
                                               ctx_trace_op_t *op,
                                               w_rob_t *w_rob)
 {
   if (ENABLE_ASSERTIONS) {
-    assert(op->key == w_rob->key);
-    assert(w_rob->l_id == hr_ctx->inserted_w_id);
+    hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+    assert(keys_are_equal(&op->key, &w_rob->key));
+    assert(w_rob->l_id == hr_ctx->inserted_w_id[]);
     assert(w_rob->w_state == SEMIVALID);
     assert(w_rob->sess_id == op->session_id);
   }
@@ -164,7 +165,7 @@ static inline void hr_commit_writes(context_t *ctx)
       assert(m_i == ctx->m_id);
       ptrs_to_w_rob[update_op_i] = w_rob;
       //my_printf(green, "Commit sess %u write %lu, version: %lu \n",
-      //          w_rob->sess_id, hr_ctx->committed_w_id + update_op_i, w_rob->version);
+      //          w_rob->sess_id, hr_ctx->committed_w_id[m_i] + update_op_i, w_rob->version);
 
       if (m_i == ctx->m_id) {
         uint16_t sess_id = w_rob->sess_id;
@@ -182,6 +183,7 @@ static inline void hr_commit_writes(context_t *ctx)
       fifo_decrem_capacity(&hr_ctx->w_rob[m_i]);
       w_rob = (w_rob_t *) get_fifo_pull_slot(&hr_ctx->w_rob[m_i]);
       update_op_i++;
+
     }
   }
 
@@ -196,19 +198,22 @@ static inline void hr_commit_writes(context_t *ctx)
       mica_op_t *kv_ptr = w_rob->kv_ptr;
       lock_seqlock(&kv_ptr->seqlock);
       {
+        assert(kv_ptr->m_id == w_rob->m_id);
+        assert(kv_ptr->version > 0);
         if (kv_ptr->version == w_rob->version &&
             kv_ptr->m_id == w_rob->m_id) {
           if (ENABLE_ASSERTIONS)
             assert(kv_ptr->state == HR_W);
           kv_ptr->state = HR_V;
         }
+
       }
       unlock_seqlock(&kv_ptr->seqlock);
     }
     if (local_op_i > 0) {
       hr_ctx->all_sessions_stalled = false;
-      //ctx_insert_commit(ctx, COM_QP_ID, local_op_i, hr_ctx->committed_w_id);
-      hr_ctx->committed_w_id += local_op_i;
+      ctx_insert_commit(ctx, COM_QP_ID, local_op_i, hr_ctx->committed_w_id[ctx->m_id]);
+      hr_ctx->committed_w_id[ctx->m_id] += local_op_i;
     }
   }
 }
@@ -229,14 +234,14 @@ static inline void insert_inv_help(context_t *ctx, void* inv_ptr,
   ctx_trace_op_t *op = (ctx_trace_op_t *) source;
   w_rob_t *w_rob = (w_rob_t *) get_fifo_push_slot(hr_ctx->loc_w_rob);
 
-  check_w_rob_in_insert_help(hr_ctx, op, w_rob);
+  check_w_rob_in_insert_help(ctx, op, w_rob);
   fill_inv(inv, op, w_rob);
 
   slot_meta_t *slot_meta = get_fifo_slot_meta_push(send_fifo);
   hr_inv_mes_t *inv_mes = (hr_inv_mes_t *) get_fifo_push_slot(send_fifo);
   // If it's the first message give it an lid
   if (slot_meta->coalesce_num == 1) {
-    inv_mes->l_id = hr_ctx->inserted_w_id;
+    inv_mes->l_id = hr_ctx->inserted_w_id[ctx->m_id];
     fifo_set_push_backward_ptr(send_fifo, hr_ctx->loc_w_rob->push_ptr);
   }
 
@@ -246,7 +251,7 @@ static inline void insert_inv_help(context_t *ctx, void* inv_ptr,
   // Bookkeeping
   w_rob->w_state = VALID;
   fifo_incr_push_ptr(hr_ctx->loc_w_rob);
-  hr_ctx->inserted_w_id++;
+  hr_ctx->inserted_w_id[ctx->m_id]++;
   hr_ctx->index_to_req_array[op->session_id] = op->index_to_req_array;
 }
 
@@ -306,20 +311,32 @@ static inline bool inv_handler(context_t *ctx)
 
   uint8_t coalesce_num = inv_mes->coalesce_num;
 
-  hr_check_polled_inv_and_print(ctx, inv_mes);
+  fifo_t *w_rob_fifo = &hr_ctx->w_rob[inv_mes->m_id];
+  bool invs_fit_in_w_rob =
+    w_rob_fifo->capacity + coalesce_num <= w_rob_fifo->max_size;
 
+  if (!invs_fit_in_w_rob) return false;
+
+  fifo_increase_capacity(w_rob_fifo, coalesce_num);
+
+  hr_check_polled_inv_and_print(ctx, inv_mes);
   ctx_ack_insert(ctx, ACK_QP_ID, coalesce_num,  inv_mes->l_id, inv_mes->m_id);
 
+  ptrs_to_inv_t *ptrs_to_inv = hr_ctx->ptrs_to_inv;
+  if (qp_meta->polled_messages == 0) ptrs_to_inv->polled_invs = 0;
 
   for (uint8_t inv_i = 0; inv_i < coalesce_num; inv_i++) {
-    //hr_check_inv_and_print(ctx, inv_mes, inv_i);
-    //fill_hr_ctx_entry(ctx, inv_mes, inv_i);
-    //fifo_incr_push_ptr(hr_ctx->loc_w_rob);
-    //fifo_incr_capacity(hr_ctx->loc_w_rob);
+    if (ENABLE_ASSERTIONS) {
+      w_rob_t *w_rob = (w_rob_t *) get_fifo_push_slot(w_rob_fifo);
+      assert(w_rob->w_state == INVALID);
+      w_rob->l_id = inv_mes->l_id + inv_i;
+      assert(ptrs_to_inv->polled_invs < MAX_INCOMING_INV);
+    }
+    ptrs_to_inv->ptr_to_ops[ptrs_to_inv->polled_invs] = &inv_mes->inv[inv_i];
+    ptrs_to_inv->ptr_to_mes[ptrs_to_inv->polled_invs] = inv_mes;
+    ptrs_to_inv->polled_invs++;
   }
-
   if (ENABLE_ASSERTIONS) inv_mes->opcode = 0;
-
   return true;
 }
 
@@ -329,7 +346,7 @@ static inline void hr_apply_acks(context_t *ctx,
 {
   hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
   per_qp_meta_t *qp_meta = &ctx->qp_meta[ACK_QP_ID];
-  uint64_t pull_lid = hr_ctx->committed_w_id;
+  uint64_t pull_lid = hr_ctx->committed_w_id[ctx->m_id];
   for (uint16_t ack_i = 0; ack_i < ack_num; ack_i++) {
 
     if (ENABLE_ASSERTIONS && (ack_ptr == hr_ctx->loc_w_rob->push_ptr)) {
@@ -340,7 +357,7 @@ static inline void hr_apply_acks(context_t *ctx,
     }
 
     w_rob_t *w_rob = (w_rob_t *) get_fifo_slot(hr_ctx->loc_w_rob, ack_ptr);
-    assert(w_rob->l_id == ack_ptr);
+    assert((w_rob->l_id % hr_ctx->w_rob->max_size) == ack_ptr);
     w_rob->acks_seen++;
     //printf("acks seen %u for %u \n", w_rob->acks_seen, ack_ptr);
     if (w_rob->acks_seen == REM_MACH_NUM) {
@@ -348,9 +365,9 @@ static inline void hr_apply_acks(context_t *ctx,
         qp_meta->outstanding_messages--;
         assert(w_rob->w_state == SENT);
       }
-      //if (DEBUG_ACKS)
-      //  printf("Worker %d, sess %u: valid ack %u/%u write at ptr %d is ready \n",
-      //         ctx->t_id, w_rob->sess_id, ack_i, ack_num,  ack_ptr);
+      if (DEBUG_ACKS)
+        printf("Worker %d, sess %u: valid ack %u/%u write at ptr %d is ready \n",
+               ctx->t_id, w_rob->sess_id, ack_i, ack_num,  ack_ptr);
       w_rob->w_state = READY;
 
     }
@@ -369,7 +386,7 @@ static inline bool ack_handler(context_t *ctx)
   ctx_ack_mes_t *ack = (ctx_ack_mes_t *) &incoming_acks[recv_fifo->pull_ptr].ack;
   uint32_t ack_num = ack->ack_num;
   uint64_t l_id = ack->l_id;
-  uint64_t pull_lid = hr_ctx->committed_w_id; // l_id at the pull pointer
+  uint64_t pull_lid = hr_ctx->committed_w_id[ctx->m_id]; // l_id at the pull pointer
   uint32_t ack_ptr; // a pointer in the FIFO, from where ack should be added
   //hr_check_polled_ack_and_print(ack, ack_num, pull_lid, recv_fifo->pull_ptr, ctx->t_id);
 

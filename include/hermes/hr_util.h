@@ -67,6 +67,7 @@ static void hr_qp_meta_mfs(context_t *ctx)
   mfs[INV_QP_ID].recv_handler = inv_handler;
   mfs[INV_QP_ID].send_helper = send_invs_helper;
   mfs[INV_QP_ID].insert_helper = insert_inv_help;
+  mfs[INV_QP_ID].recv_kvs = hr_KVS_batch_op_invs;
   //mfs[PREP_QP_ID].polling_debug = hr_debug_info_bookkeep;
 
   mfs[ACK_QP_ID].recv_handler = ack_handler;
@@ -78,7 +79,7 @@ static void hr_qp_meta_mfs(context_t *ctx)
   //
   //mfs[R_QP_ID].recv_handler = r_handler;
   //
-  //mfs[R_QP_ID].recv_kvs = hr_KVS_batch_op_reads;
+
   //mfs[R_QP_ID].insert_helper = insert_r_rep_help;
   //mfs[R_QP_ID].polling_debug = hr_debug_info_bookkeep;
 
@@ -130,9 +131,13 @@ static void* set_up_hr_ctx(context_t *ctx)
 
   hr_ctx->stalled = (bool *) malloc(SESSIONS_PER_THREAD * sizeof(bool));
 
+  hr_ctx->committed_w_id = calloc(MACHINE_NUM, sizeof(uint64_t));
+  hr_ctx->inserted_w_id = calloc(MACHINE_NUM, sizeof(uint64_t));
+
   hr_ctx->ops = (ctx_trace_op_t *) calloc((size_t) HR_TRACE_BATCH, sizeof(ctx_trace_op_t));
   hr_ctx->resp = (hr_resp_t*) calloc((size_t) HR_TRACE_BATCH, sizeof(hr_resp_t));
   for(int i = 0; i <  HR_TRACE_BATCH; i++) hr_ctx->resp[i].type = EMPTY;
+
 
   for (int i = 0; i < SESSIONS_PER_THREAD; i++) hr_ctx->stalled[i] = false;
 
@@ -145,6 +150,11 @@ static void* set_up_hr_ctx(context_t *ctx)
       if (m_id == ctx->m_id) w_rob->is_local = true;
     }
   }
+  
+  hr_ctx->ptrs_to_inv = calloc(1, sizeof(ptrs_to_inv_t));
+  hr_ctx->ptrs_to_inv->ptr_to_ops = calloc(MAX_INCOMING_INV, sizeof(hr_inv_t*));
+  hr_ctx->ptrs_to_inv->ptr_to_mes = calloc(MAX_INCOMING_INV, sizeof(hr_inv_mes_t*));
+
 
   if (!ENABLE_CLIENTS)
     hr_ctx->trace = trace_init(ctx->t_id);

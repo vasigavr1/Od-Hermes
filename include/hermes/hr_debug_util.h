@@ -41,7 +41,7 @@ static inline void hr_check_polled_inv_and_print(context_t *ctx,
               inv_mes->l_id, inv_mes->m_id);
   if (ENABLE_ASSERTIONS) {
     assert(inv_mes->opcode == KVS_OP_PUT);
-    assert(inv_mes->coalesce_num > 0 && inv_mes->coalesce_num <= inv_COALESCE);
+    assert(inv_mes->coalesce_num > 0 && inv_mes->coalesce_num <= INV_COALESCE);
   }
   if (ENABLE_STAT_COUNTING) {
     t_stats[ctx->t_id].received_invs += inv_mes->coalesce_num;
