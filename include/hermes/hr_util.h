@@ -138,6 +138,8 @@ static void* set_up_hr_ctx(context_t *ctx)
   hr_ctx->resp = (hr_resp_t*) calloc((size_t) HR_TRACE_BATCH, sizeof(hr_resp_t));
   for(int i = 0; i <  HR_TRACE_BATCH; i++) hr_ctx->resp[i].type = EMPTY;
 
+  hr_ctx->buf_ops = fifo_constructor(2 * SESSIONS_PER_THREAD, sizeof(buf_op_t), false, 0, 1);
+
 
   for (int i = 0; i < SESSIONS_PER_THREAD; i++) hr_ctx->stalled[i] = false;
 

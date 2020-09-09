@@ -56,6 +56,7 @@ struct mica_op {
  * ----------------------------------------------*/
 typedef struct hr_resp {
   uint8_t type;
+  ctx_trace_op_t* op;
 } hr_resp_t;
 
 
@@ -100,7 +101,21 @@ typedef struct w_rob {
 
 } hr_w_rob_t;
 
+typedef struct buf_op {
+  ctx_trace_op_t op;
+  //mica_key_t key;
+  //uint8_t *value_ptr;
+  mica_op_t *kv_ptr;
+  //uint16_t sess_id;
+  //uint8_t opcode;
+} buf_op_t;
 
+typedef struct rep_ops {
+  buf_op_t *prim_ops;
+  buf_op_t *sec_ops;
+  uint32_t push_ptr;
+
+} buf_ops_ds;
 
 
 // A data structute that keeps track of the outstanding writes
@@ -118,6 +133,9 @@ typedef struct hr_ctx {
 
   ctx_trace_op_t *ops;
   hr_resp_t *resp;
+
+  fifo_t *buf_ops;
+  //fifo_t *sec_ops;
 
   //ptrs_to_r_t *ptrs_to_r;
   uint64_t *inserted_w_id;

@@ -11,7 +11,7 @@
 #include "hr_kvs_util.h"
 #include "hr_debug_util.h"
 //#include "hr_reserve_stations.h"
-//#include "hr_kvs_util.h"
+
 
 static inline void check_w_rob_in_insert_help(context_t *ctx,
                                               ctx_trace_op_t *op,
@@ -32,7 +32,7 @@ static inline void fill_inv(hr_inv_t *inv,
 {
   if (ENABLE_ASSERTIONS) assert(op->opcode == KVS_OP_PUT);
   memcpy(&inv->key, &op->key, KEY_SIZE);
-  memcpy(inv->value, op->value, (size_t) VALUE_SIZE);
+  memcpy(inv->value, op->value_to_write, (size_t) VALUE_SIZE);
   inv->version = w_rob->version;
 
 }
@@ -119,28 +119,35 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
   //       working_session, op_i, ops[0].index_to_req_array);
   hr_ctx->last_session = (uint16_t) working_session;
   t_stats[ctx->t_id].cache_hits_per_thread += op_i;
+
+  //uint32_t op_num = op_i + hr_ctx->buf_ops->capacity;
+
   hr_KVS_batch_op_trace(ctx, op_i);
 
-  for (uint16_t i = 0; i < op_i; i++) {
-    // my_printf(green, "After: OP_i %u -> session %u \n", i, *(uint32_t *) &ops[i]);
-    if (resp[i].type == KVS_MISS)  {
-      my_printf(green, "KVS %u: bkt %u, server %u, tag %u \n", i,
-                ops[i].key.bkt, ops[i].key.server, ops[i].key.tag);
-      assert(false);
-      continue;
-    }
-      // Local reads
-    else if (resp[i].type == KVS_LOCAL_GET_SUCCESS) {
-      //printf("Freeing sess %u \n", ops[i].session_id);
-      signal_completion_to_client(ops[i].session_id, ops[i].index_to_req_array, ctx->t_id);
-      hr_ctx->all_sessions_stalled = false;
-      hr_ctx->stalled[ops[i].session_id] = false;
-    }
-    else { // WRITE
-      if (ENABLE_ASSERTIONS) assert(resp[i].type == KVS_PUT_SUCCESS);
-      ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, &ops[i], 0);
-    }
-  }
+
+
+  //for (uint32_t i = 0; i < op_num; i++) {
+  //  ctx_trace_op_t *op = resp[i].op;
+  //  // my_printf(green, "After: OP_i %u -> session %u \n", i, *(uint32_t *) &ops[i]);
+  //  if (resp[i].type == KVS_MISS)  {
+  //    my_printf(green, "KVS %u: bkt %u, server %u, tag %u \n", i,
+  //              ops[i].key.bkt, ops[i].key.server, ops[i].key.tag);
+  //    assert(false);
+  //    continue;
+  //  }
+  //    // Local reads
+  //  else if (resp[i].type == KVS_LOCAL_GET_SUCCESS) {
+  //    //printf("Freeing sess %u \n", ops[i].session_id);
+  //    signal_completion_to_client(ops[i].session_id, ops[i].index_to_req_array, ctx->t_id);
+  //    hr_ctx->all_sessions_stalled = false;
+  //    hr_ctx->stalled[ops[i].session_id] = false;
+  //  }
+  //  else if (resp[i].type == KVS_PUT_SUCCESS) { // WRITE
+  //    ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, &ops[i], 0);
+  //  }
+  //  else if (resp[i].type == KVS_PUT_OP_BUFFER) {
+  //  }
+  //}
 
 }
 
@@ -249,9 +256,9 @@ static inline void insert_inv_help(context_t *ctx, void* inv_ptr,
     fifo_set_push_backward_ptr(send_fifo, hr_ctx->loc_w_rob->push_ptr);
   }
 
-
-  //my_printf(yellow, "Sess %u Inserting inv %lu \n",
-  //       op->session_id, hr_ctx->inserted_w_id);
+  if (DEBUG_INVS)
+    my_printf(yellow, "Sess %u Inserting inv %lu \n",
+              op->session_id, hr_ctx->inserted_w_id[ctx->m_id]);
   // Bookkeeping
   w_rob->w_state = VALID;
   fifo_incr_push_ptr(hr_ctx->loc_w_rob);
@@ -356,6 +363,8 @@ static inline bool inv_handler(context_t *ctx)
   if (ENABLE_ASSERTIONS) inv_mes->opcode = 0;
   return true;
 }
+
+
 
 static inline void hr_apply_acks(context_t *ctx,
                                  ctx_ack_mes_t *ack,

@@ -6,8 +6,80 @@
 #define ODYSSEY_HR_KVS_UTIL_H
 
 #include <network_context.h>
+#include <netw_func.h>
 #include "kvs.h"
 #include "hr_config.h"
+
+
+static inline void sw_prefetch_buf_op_keys(context_t *ctx)
+{
+  hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+  if (hr_ctx->buf_ops->capacity == 0) return;
+  for (int op_i = 0; op_i < hr_ctx->buf_ops->capacity; ++op_i) {
+    buf_op_t *buf_op = (buf_op_t *) get_fifo_pull_relative_slot(hr_ctx->buf_ops, op_i);
+      __builtin_prefetch(buf_op->kv_ptr, 0, 0);
+  }
+}
+
+
+
+static inline void init_w_rob_on_loc_inv(context_t *ctx,
+                                         mica_op_t *kv_ptr,
+                                         ctx_trace_op_t *op,
+                                         hr_resp_t *resp,
+                                         uint64_t new_version,
+                                         uint32_t write_i)
+{
+  hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+  hr_w_rob_t *w_rob = (hr_w_rob_t *)
+    get_fifo_push_slot(hr_ctx->loc_w_rob);
+  if (ENABLE_ASSERTIONS)
+    assert(w_rob->w_state == INVALID);
+  w_rob->key = op->key;
+  w_rob->version = new_version;
+  w_rob->kv_ptr = kv_ptr;
+  w_rob->l_id = hr_ctx->inserted_w_id[ctx->m_id];
+  w_rob->val_len = op->val_len;
+  w_rob->sess_id = op->session_id;
+  w_rob->w_state = SEMIVALID;
+  if (ENABLE_ASSERTIONS)
+    assert(hr_ctx->stalled[w_rob->sess_id]);
+  if (DEBUG_INVS)
+    my_printf(cyan, "W_rob insert sess %u write %lu, w_rob_i %u\n",
+              w_rob->sess_id, w_rob->l_id,
+             hr_ctx->loc_w_rob->push_ptr);
+
+  resp->type = KVS_PUT_SUCCESS;
+  fifo_increm_capacity(hr_ctx->loc_w_rob);
+}
+
+static inline void insert_buffered_op(context_t *ctx,
+                                      mica_op_t *kv_ptr,
+                                      ctx_trace_op_t *op,
+                                      hr_resp_t *resp,
+                                      bool inv)
+{
+  hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+  buf_op_t *buf_op = (buf_op_t *) get_fifo_push_slot(hr_ctx->buf_ops);
+  buf_op->op.opcode = op->opcode;
+  buf_op->op.key = op->key;
+  buf_op->op.session_id = op->session_id;
+  buf_op->op.index_to_req_array = op->index_to_req_array;
+  buf_op->kv_ptr = kv_ptr;
+
+
+  if (inv) {
+      buf_op->op.value_to_write = op->value_to_write;
+      resp->type = KVS_PUT_OP_BUFFER;
+  }
+  else {
+    buf_op->op.value_to_read = op->value_to_read;
+    resp->type = KVS_GET_OP_BUFFER;
+  }
+
+  fifo_incr_push_ptr(hr_ctx->buf_ops);
+  fifo_increm_capacity(hr_ctx->buf_ops);
+}
 
 static inline void hr_local_inv(context_t *ctx,
                                 mica_op_t *kv_ptr,
@@ -15,34 +87,34 @@ static inline void hr_local_inv(context_t *ctx,
                                 hr_resp_t *resp,
                                 uint32_t write_i)
 {
-  hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
-  hr_w_rob_t *w_rob = (hr_w_rob_t *)
-    get_fifo_push_relative_slot(hr_ctx->loc_w_rob, write_i);
+  bool success = false;
   uint64_t new_version;
-  lock_seqlock(&kv_ptr->seqlock);
-  kv_ptr->state = HR_W;
-  kv_ptr->version++;
-  new_version = kv_ptr->version;
-  kv_ptr->m_id = ctx->m_id;
-  memcpy(kv_ptr->value, op->value,  VALUE_SIZE);
-  unlock_seqlock(&kv_ptr->seqlock);
-  if (ENABLE_ASSERTIONS)
-    assert(w_rob->w_state == INVALID);
-  w_rob->key = op->key;
-  w_rob->version = new_version;
-  w_rob->kv_ptr = kv_ptr;
-  w_rob->l_id = hr_ctx->inserted_w_id[ctx->m_id] + write_i;
-  w_rob->val_len = op->val_len;
-  w_rob->sess_id = op->session_id;
-  w_rob->w_state = SEMIVALID;
-  if (ENABLE_ASSERTIONS)
-    assert(hr_ctx->stalled[w_rob->sess_id]);
-  //my_printf(cyan, "W_rob insert sess %u write %lu, w_rob_i %u\n",
-  //          w_rob->sess_id, w_rob->l_id,
-  //          (hr_ctx->loc_w_rob->push_ptr + write_i) % hr_ctx->loc_w_rob->max_size);
+  read_seqlock_lock_free(&kv_ptr->seqlock);
+  if (kv_ptr->state != HR_W &&
+    kv_ptr->state != HR_INV_T) {
+    lock_seqlock(&kv_ptr->seqlock);
+    {
+      if (kv_ptr->state != HR_W &&
+          kv_ptr->state != HR_INV_T) {
+        kv_ptr->state = HR_W;
+        kv_ptr->version++;
+        new_version = kv_ptr->version;
+        kv_ptr->m_id = ctx->m_id;
+        memcpy(kv_ptr->value, op->value_to_write, VALUE_SIZE);
+        success = true;
+      }
+    }
+    unlock_seqlock(&kv_ptr->seqlock);
+  }
 
-  resp->type = KVS_PUT_SUCCESS;
-  fifo_increm_capacity(hr_ctx->loc_w_rob);
+  if (success) {
+    init_w_rob_on_loc_inv(ctx, kv_ptr, op, resp,
+                          new_version, write_i);
+    ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0);
+  }
+  else {
+    insert_buffered_op(ctx, kv_ptr, op, resp, true);
+  }
 }
 
 static inline void hr_rem_inv(context_t *ctx,
@@ -99,6 +171,31 @@ static inline void hr_rem_inv(context_t *ctx,
 }
 
 
+static inline void handle_trace_reqs(context_t *ctx,
+                                     mica_op_t *kv_ptr,
+                                     ctx_trace_op_t *op,
+                                     hr_resp_t *resp,
+                                     uint32_t *write_i,
+                                     uint16_t op_i)
+{
+  if (op->opcode == KVS_OP_GET) {
+    KVS_local_read(kv_ptr, op->value_to_read, &resp->type, ctx->t_id);
+    hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+    signal_completion_to_client(op->session_id, op->index_to_req_array, ctx->t_id);
+    hr_ctx->all_sessions_stalled = false;
+    hr_ctx->stalled[op->session_id] = false;
+  }
+  else if (op->opcode == KVS_OP_PUT) {
+    hr_local_inv(ctx, kv_ptr, op, resp, *write_i);
+    (*write_i)++;
+  }
+  else if (ENABLE_ASSERTIONS) {
+    my_printf(red, "wrong Opcode in cache: %d, req %d \n", op->opcode, op_i);
+    assert(0);
+  }
+  resp->op = op;
+}
+
 
 
 static inline void hr_KVS_batch_op_trace(context_t *ctx, uint16_t op_num)
@@ -126,23 +223,24 @@ static inline void hr_KVS_batch_op_trace(context_t *ctx, uint16_t op_num)
   }
   KVS_locate_all_kv_pairs(op_num, tag, bkt_ptr, kv_ptr, KVS);
 
+  sw_prefetch_buf_op_keys(ctx);
   //uint32_t r_push_ptr = hr_ctx->r_rob->push_ptr;
   // the following variables used to validate atomicity between a lock-free read of an object
   uint32_t write_i = 0;
   for(op_i = 0; op_i < op_num; op_i++) {
     KVS_check_key(kv_ptr[op_i], op[op_i].key, op_i);
-    if (op[op_i].opcode == KVS_OP_GET ) {
-      KVS_local_read(kv_ptr[op_i], op[op_i].value_to_read, &resp[op_i].type, ctx->t_id);
-    }
-    else if (op[op_i].opcode == KVS_OP_PUT) {
-      hr_local_inv(ctx, kv_ptr[op_i], &op[op_i], &resp[op_i], write_i);
-      write_i++;
-    }
-    else if (ENABLE_ASSERTIONS) {
-      my_printf(red, "wrong Opcode in cache: %d, req %d \n", op[op_i].opcode, op_i);
-      assert(0);
-    }
+    handle_trace_reqs(ctx, kv_ptr[op_i], &op[op_i], &resp[op_i], &write_i, op_i);
   }
+
+
+  if (hr_ctx->buf_ops->capacity == 0) return;
+  for (op_i = 0; op_i < hr_ctx->buf_ops->capacity; ++op_i) {
+    buf_op_t *buf_op = (buf_op_t *) get_fifo_pull_slot(hr_ctx->buf_ops);
+    handle_trace_reqs(ctx, buf_op->kv_ptr, &buf_op->op, &resp[op_num + op_i], &write_i, op_i);
+    fifo_incr_pull_ptr(hr_ctx->buf_ops);
+    fifo_decrem_capacity(hr_ctx->buf_ops);
+  }
+
 }
 
 static inline void hr_KVS_batch_op_invs(context_t *ctx)
