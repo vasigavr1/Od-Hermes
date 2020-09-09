@@ -73,8 +73,8 @@ static void hr_qp_meta_mfs(context_t *ctx)
   mfs[ACK_QP_ID].recv_handler = ack_handler;
   mfs[ACK_QP_ID].send_helper = send_acks_helper;
 
-  //mfs[COM_QP_ID].recv_handler = hr_commit_handler;
-  //mfs[COM_QP_ID].send_helper = hr_send_commits_helper;
+  mfs[COM_QP_ID].recv_handler = hr_commit_handler;
+  mfs[COM_QP_ID].send_helper = hr_send_commits_helper;
   //mfs[COMMIT_W_QP_ID].polling_debug = hr_debug_info_bookkeep;
   //
   //mfs[R_QP_ID].recv_handler = r_handler;
@@ -125,7 +125,7 @@ static void* set_up_hr_ctx(context_t *ctx)
 
   hr_ctx_t *hr_ctx = (hr_ctx_t *) calloc(1, sizeof(hr_ctx_t));
 
-  hr_ctx->w_rob = fifo_constructor(HR_PENDING_WRITES, sizeof(w_rob_t), false, 0, MACHINE_NUM);
+  hr_ctx->w_rob = fifo_constructor(HR_PENDING_WRITES, sizeof(hr_w_rob_t), false, 0, MACHINE_NUM);
   hr_ctx->loc_w_rob = &hr_ctx->w_rob[ctx->m_id];
   hr_ctx->index_to_req_array = (uint32_t *) calloc(SESSIONS_PER_THREAD, sizeof(uint32_t));
 
@@ -143,11 +143,15 @@ static void* set_up_hr_ctx(context_t *ctx)
 
   for (uint8_t m_id = 0; m_id < MACHINE_NUM; ++m_id) {
     for (uint32_t i = 0; i < HR_PENDING_WRITES; i++) {
-      w_rob_t *w_rob = get_fifo_slot(&hr_ctx->w_rob[m_id], i);
+      hr_w_rob_t *w_rob = get_fifo_slot(&hr_ctx->w_rob[m_id], i);
       w_rob->w_state = INVALID;
       w_rob->version = 0;
       w_rob->m_id = m_id;
-      if (m_id == ctx->m_id) w_rob->is_local = true;
+      w_rob->id = (uint16_t) i;
+      if (m_id == ctx->m_id) {
+        w_rob->inv_applied = true;
+        w_rob->is_local = true;
+      }
     }
   }
   

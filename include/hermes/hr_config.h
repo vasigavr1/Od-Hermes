@@ -90,6 +90,7 @@ typedef struct w_rob {
   uint8_t m_id;
   uint8_t acks_seen;
   uint8_t val_len;
+  uint16_t id;
   //uint32_t index_to_req_array;
   bool is_local;
   bool inv_applied;
@@ -97,7 +98,7 @@ typedef struct w_rob {
 
   //uint8_t value[VALUE_SIZE];
 
-} w_rob_t;
+} hr_w_rob_t;
 
 
 

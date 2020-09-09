@@ -15,12 +15,12 @@
 
 static inline void check_w_rob_in_insert_help(context_t *ctx,
                                               ctx_trace_op_t *op,
-                                              w_rob_t *w_rob)
+                                              hr_w_rob_t *w_rob)
 {
   if (ENABLE_ASSERTIONS) {
     hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
     assert(keys_are_equal(&op->key, &w_rob->key));
-    assert(w_rob->l_id == hr_ctx->inserted_w_id[]);
+    assert(w_rob->l_id == hr_ctx->inserted_w_id[ctx->m_id]);
     assert(w_rob->w_state == SEMIVALID);
     assert(w_rob->sess_id == op->session_id);
   }
@@ -28,7 +28,7 @@ static inline void check_w_rob_in_insert_help(context_t *ctx,
 
 static inline void fill_inv(hr_inv_t *inv,
                             ctx_trace_op_t *op,
-                            w_rob_t *w_rob)
+                            hr_w_rob_t *w_rob)
 {
   if (ENABLE_ASSERTIONS) assert(op->opcode == KVS_OP_PUT);
   memcpy(&inv->key, &op->key, KEY_SIZE);
@@ -154,15 +154,14 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
 static inline void hr_commit_writes(context_t *ctx)
 {
   uint16_t update_op_i = 0, local_op_i = 0;
-  w_rob_t *ptrs_to_w_rob[HR_UPDATE_BATCH];
+  hr_w_rob_t *ptrs_to_w_rob[HR_UPDATE_BATCH];
   hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
   for (int m_i = 0; m_i < MACHINE_NUM; ++m_i) {
-    w_rob_t *w_rob = (w_rob_t *) get_fifo_pull_slot(&hr_ctx->w_rob[m_i]);
+    hr_w_rob_t *w_rob = (hr_w_rob_t *) get_fifo_pull_slot(&hr_ctx->w_rob[m_i]);
     while (w_rob->w_state == READY) {
       __builtin_prefetch(&w_rob->kv_ptr->seqlock, 0, 0);
       w_rob->w_state = INVALID;
       assert(update_op_i < HR_UPDATE_BATCH);
-      assert(m_i == ctx->m_id);
       ptrs_to_w_rob[update_op_i] = w_rob;
       //my_printf(green, "Commit sess %u write %lu, version: %lu \n",
       //          w_rob->sess_id, hr_ctx->committed_w_id[m_i] + update_op_i, w_rob->version);
@@ -181,7 +180,7 @@ static inline void hr_commit_writes(context_t *ctx)
       }
       fifo_incr_pull_ptr(&hr_ctx->w_rob[m_i]);
       fifo_decrem_capacity(&hr_ctx->w_rob[m_i]);
-      w_rob = (w_rob_t *) get_fifo_pull_slot(&hr_ctx->w_rob[m_i]);
+      w_rob = (hr_w_rob_t *) get_fifo_pull_slot(&hr_ctx->w_rob[m_i]);
       update_op_i++;
 
     }
@@ -190,25 +189,30 @@ static inline void hr_commit_writes(context_t *ctx)
   if (update_op_i > 0) {
 
     for (int w_i = 0; w_i < update_op_i; ++w_i) {
-      w_rob_t *w_rob = ptrs_to_w_rob[w_i];
+      hr_w_rob_t *w_rob = ptrs_to_w_rob[w_i];
+      if (w_rob->inv_applied) {
+        assert(w_rob->version > 0);
+        assert(w_rob != NULL);
+        mica_op_t *kv_ptr = w_rob->kv_ptr;
+        lock_seqlock(&kv_ptr->seqlock);
+        {
+          //assert(kv_ptr->m_id == w_rob->m_id);
+          if (ENABLE_ASSERTIONS) assert(kv_ptr->version > 0);
+          if (kv_ptr->version == w_rob->version &&
+              kv_ptr->m_id == w_rob->m_id) {
+            if (ENABLE_ASSERTIONS) {
+              if (w_rob->m_id == ctx->m_id)
+                assert(kv_ptr->state == HR_W);
+              else
+                assert(kv_ptr->state == HR_INV ||
+                         kv_ptr->state == HR_INV_T);
+            }
+            kv_ptr->state = HR_V;
+          }
 
-      assert(w_rob->version > 0);
-      assert(w_rob != NULL);
-
-      mica_op_t *kv_ptr = w_rob->kv_ptr;
-      lock_seqlock(&kv_ptr->seqlock);
-      {
-        assert(kv_ptr->m_id == w_rob->m_id);
-        assert(kv_ptr->version > 0);
-        if (kv_ptr->version == w_rob->version &&
-            kv_ptr->m_id == w_rob->m_id) {
-          if (ENABLE_ASSERTIONS)
-            assert(kv_ptr->state == HR_W);
-          kv_ptr->state = HR_V;
         }
-
+        unlock_seqlock(&kv_ptr->seqlock);
       }
-      unlock_seqlock(&kv_ptr->seqlock);
     }
     if (local_op_i > 0) {
       hr_ctx->all_sessions_stalled = false;
@@ -232,7 +236,7 @@ static inline void insert_inv_help(context_t *ctx, void* inv_ptr,
 
   hr_inv_t *inv = (hr_inv_t *) inv_ptr;
   ctx_trace_op_t *op = (ctx_trace_op_t *) source;
-  w_rob_t *w_rob = (w_rob_t *) get_fifo_push_slot(hr_ctx->loc_w_rob);
+  hr_w_rob_t *w_rob = (hr_w_rob_t *) get_fifo_push_slot(hr_ctx->loc_w_rob);
 
   check_w_rob_in_insert_help(ctx, op, w_rob);
   fill_inv(inv, op, w_rob);
@@ -279,7 +283,7 @@ static inline void send_invs_helper(context_t *ctx)
   uint32_t backward_ptr = fifo_get_pull_backward_ptr(send_fifo);
 
   for (uint16_t i = 0; i < coalesce_num; i++) {
-    w_rob_t *w_rob = (w_rob_t *) get_fifo_slot_mod(hr_ctx->loc_w_rob, backward_ptr + i);
+    hr_w_rob_t *w_rob = (hr_w_rob_t *) get_fifo_slot_mod(hr_ctx->loc_w_rob, backward_ptr + i);
     if (ENABLE_ASSERTIONS) assert(w_rob->w_state == VALID);
     w_rob->w_state = SENT;
     if (DEBUG_INVS)
@@ -296,6 +300,19 @@ static inline void send_invs_helper(context_t *ctx)
   hr_checks_and_stats_on_bcasting_invs(ctx, coalesce_num);
 }
 
+
+static inline void hr_send_commits_helper(context_t *ctx)
+{
+  per_qp_meta_t *qp_meta = &ctx->qp_meta[COM_QP_ID];
+  fifo_t *send_fifo = qp_meta->send_fifo;
+  ctx_com_mes_t *com_mes = (ctx_com_mes_t *) get_fifo_pull_slot(send_fifo);
+
+  if (DEBUG_COMMITS)
+    my_printf(green, "Wrkr %u, Broadcasting commit %u, lid %lu, com_num %u \n",
+              ctx->t_id, com_mes->opcode, com_mes->l_id, com_mes->com_num);
+
+  hr_checks_and_stats_on_bcasting_commits(send_fifo, com_mes, ctx->t_id);
+}
 
 
 ///* ---------------------------------------------------------------------------
@@ -327,7 +344,7 @@ static inline bool inv_handler(context_t *ctx)
 
   for (uint8_t inv_i = 0; inv_i < coalesce_num; inv_i++) {
     if (ENABLE_ASSERTIONS) {
-      w_rob_t *w_rob = (w_rob_t *) get_fifo_push_slot(w_rob_fifo);
+      hr_w_rob_t *w_rob = (hr_w_rob_t *) get_fifo_push_slot(w_rob_fifo);
       assert(w_rob->w_state == INVALID);
       w_rob->l_id = inv_mes->l_id + inv_i;
       assert(ptrs_to_inv->polled_invs < MAX_INCOMING_INV);
@@ -356,7 +373,7 @@ static inline void hr_apply_acks(context_t *ctx,
                 ack_i, ack_num, hr_ctx->loc_w_rob->pull_ptr, hr_ctx->loc_w_rob->push_ptr, hr_ctx->loc_w_rob->capacity);
     }
 
-    w_rob_t *w_rob = (w_rob_t *) get_fifo_slot(hr_ctx->loc_w_rob, ack_ptr);
+    hr_w_rob_t *w_rob = (hr_w_rob_t *) get_fifo_slot(hr_ctx->loc_w_rob, ack_ptr);
     assert((w_rob->l_id % hr_ctx->w_rob->max_size) == ack_ptr);
     w_rob->acks_seen++;
     //printf("acks seen %u for %u \n", w_rob->acks_seen, ack_ptr);
@@ -410,6 +427,50 @@ static inline bool ack_handler(context_t *ctx)
 }
 
 
+static inline bool hr_commit_handler(context_t *ctx)
+{
+  hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+  per_qp_meta_t *qp_meta = &ctx->qp_meta[COM_QP_ID];
+  fifo_t *recv_fifo = qp_meta->recv_fifo;
+  volatile ctx_com_mes_ud_t *incoming_coms = (volatile ctx_com_mes_ud_t *) recv_fifo->fifo;
+
+  ctx_com_mes_t *com = (ctx_com_mes_t *) &incoming_coms[recv_fifo->pull_ptr].com;
+  uint32_t com_num = com->com_num;
+
+  uint64_t l_id = com->l_id;
+  if (ENABLE_ASSERTIONS)
+    assert(l_id == hr_ctx->committed_w_id[com->m_id]);
+
+  hr_check_polled_commit_and_print(ctx, com, recv_fifo->pull_ptr);
+
+  fifo_t *w_rob_fifo = &hr_ctx->w_rob[com->m_id];
+  /// loop through each commit
+  for (uint16_t com_i = 0; com_i < com_num; com_i++) {
+    hr_w_rob_t * w_rob = get_fifo_slot_mod(w_rob_fifo, (uint32_t) (l_id + com_i));
+    if (DEBUG_COMMITS)
+      my_printf(yellow, "Wrkr %u, Com %u/%u, l_id %lu \n",
+                ctx->t_id, com_i, com_num, l_id + com_i);
+
+    if (ENABLE_ASSERTIONS) {
+      assert(w_rob->w_state == VALID);
+      assert(w_rob->l_id == l_id + com_i);
+      assert(l_id + com_i == hr_ctx->committed_w_id[com->m_id]);
+      assert(w_rob->m_id == com->m_id);
+    }
+    hr_ctx->committed_w_id[com->m_id]++;
+    w_rob->w_state = READY;
+  } ///
+
+  if (ENABLE_ASSERTIONS) com->opcode = 0;
+
+  if (ENABLE_STAT_COUNTING) {
+    t_stats[ctx->t_id].received_coms += com_num;
+    t_stats[ctx->t_id].received_coms_mes_num++;
+  }
+
+  return true;
+}
+
 
 static inline void main_loop(context_t *ctx)
 {
@@ -422,7 +483,12 @@ static inline void main_loop(context_t *ctx)
     ctx_send_acks(ctx, ACK_QP_ID);
     ctx_poll_incoming_messages(ctx, ACK_QP_ID);
 
+    ctx_send_broadcasts(ctx, COM_QP_ID);
+    ctx_poll_incoming_messages(ctx, COM_QP_ID);
+
     hr_commit_writes(ctx);
+
+
   }
 }
 

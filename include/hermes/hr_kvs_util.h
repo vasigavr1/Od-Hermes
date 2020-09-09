@@ -16,7 +16,7 @@ static inline void hr_local_inv(context_t *ctx,
                                 uint32_t write_i)
 {
   hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
-  w_rob_t *w_rob = (w_rob_t *)
+  hr_w_rob_t *w_rob = (hr_w_rob_t *)
     get_fifo_push_relative_slot(hr_ctx->loc_w_rob, write_i);
   uint64_t new_version;
   lock_seqlock(&kv_ptr->seqlock);
@@ -74,8 +74,13 @@ static inline void hr_rem_inv(context_t *ctx,
     unlock_seqlock(&kv_ptr->seqlock);
   }
 
-  w_rob_t *w_rob = (w_rob_t *)
+  hr_w_rob_t *w_rob = (hr_w_rob_t *)
     get_fifo_push_slot(&hr_ctx->w_rob[inv_mes->m_id]);
+  if (DEBUG_INVS)
+    my_printf(cyan, "W_rob %u for inv from %u with l_id %lu -->%lu, inserted w_id = %u\n",
+              w_rob->id,  inv_mes->m_id, inv_mes->l_id,
+              inv_mes->l_id + inv_mes->coalesce_num,
+              hr_ctx->inserted_w_id[inv_mes->m_id]);
   if (ENABLE_ASSERTIONS)
     assert(w_rob->w_state == INVALID);
   w_rob->w_state = VALID;
@@ -90,6 +95,7 @@ static inline void hr_rem_inv(context_t *ctx,
     w_rob->m_id = inv_mes->m_id;
     w_rob->kv_ptr = kv_ptr;
   }
+  fifo_incr_push_ptr(&hr_ctx->w_rob[inv_mes->m_id]);
 }
 
 
