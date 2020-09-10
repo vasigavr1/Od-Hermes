@@ -83,21 +83,16 @@ typedef struct w_rob {
   uint64_t version;
   uint64_t l_id; // TODO not needed
   mica_op_t *kv_ptr;
-  mica_key_t key; // TODO not needed
 
   uint16_t sess_id;
+  uint16_t id;
 
   w_state_t w_state;
   uint8_t m_id;
   uint8_t acks_seen;
   uint8_t val_len;
-  uint16_t id;
-  //uint32_t index_to_req_array;
-  bool is_local;
   bool inv_applied;
-  //hr_prepare_t *ptr_to_op;
 
-  //uint8_t value[VALUE_SIZE];
 
 } hr_w_rob_t;
 
@@ -135,20 +130,15 @@ typedef struct hr_ctx {
   hr_resp_t *resp;
 
   fifo_t *buf_ops;
-  //fifo_t *sec_ops;
 
-  //ptrs_to_r_t *ptrs_to_r;
   uint64_t *inserted_w_id;
   uint64_t *committed_w_id;
-
-  uint64_t local_r_id;
 
   uint32_t *index_to_req_array; // [SESSIONS_PER_THREAD]
   bool *stalled;
 
   bool all_sessions_stalled;
 
-  uint32_t wait_for_gid_dbg_counter;
   uint32_t stalled_sessions_dbg_counter;
 } hr_ctx_t;
 
