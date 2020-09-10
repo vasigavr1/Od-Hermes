@@ -56,7 +56,6 @@ static inline void init_w_rob_on_loc_inv(context_t *ctx,
 static inline void insert_buffered_op(context_t *ctx,
                                       mica_op_t *kv_ptr,
                                       ctx_trace_op_t *op,
-                                      hr_resp_t *resp,
                                       bool inv)
 {
   hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
@@ -70,11 +69,9 @@ static inline void insert_buffered_op(context_t *ctx,
 
   if (inv) {
       buf_op->op.value_to_write = op->value_to_write;
-      resp->type = KVS_PUT_OP_BUFFER;
   }
   else {
     buf_op->op.value_to_read = op->value_to_read;
-    resp->type = KVS_GET_OP_BUFFER;
   }
 
   fifo_incr_push_ptr(hr_ctx->buf_ops);
@@ -113,7 +110,7 @@ static inline void hr_local_inv(context_t *ctx,
     ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0);
   }
   else {
-    insert_buffered_op(ctx, kv_ptr, op, resp, true);
+    insert_buffered_op(ctx, kv_ptr, op, true);
   }
 }
 
@@ -171,6 +168,35 @@ static inline void hr_rem_inv(context_t *ctx,
 }
 
 
+static inline void hr_loc_read(context_t *ctx,
+                               mica_op_t *kv_ptr,
+                               ctx_trace_op_t *op)
+{
+  if (ENABLE_ASSERTIONS) {
+    assert(op->value_to_read != NULL);
+    assert(kv_ptr != NULL);
+  }
+  bool success = false;
+  uint32_t debug_cntr = 0;
+  uint64_t tmp_lock = read_seqlock_lock_free(&kv_ptr->seqlock);
+  do {
+    debug_stalling_on_lock(&debug_cntr, "local read", ctx->t_id);
+    if (kv_ptr->state == HR_V) {
+      memcpy(op->value_to_read, kv_ptr->value, (size_t) VALUE_SIZE);
+      success = true;
+    }
+  } while (!(check_seqlock_lock_free(&kv_ptr->seqlock, &tmp_lock)));
+
+  if (success) {
+    hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+    signal_completion_to_client(op->session_id, op->index_to_req_array, ctx->t_id);
+    hr_ctx->all_sessions_stalled = false;
+    hr_ctx->stalled[op->session_id] = false;
+  }
+  else insert_buffered_op(ctx, kv_ptr, op, false);
+}
+
+
 static inline void handle_trace_reqs(context_t *ctx,
                                      mica_op_t *kv_ptr,
                                      ctx_trace_op_t *op,
@@ -179,11 +205,7 @@ static inline void handle_trace_reqs(context_t *ctx,
                                      uint16_t op_i)
 {
   if (op->opcode == KVS_OP_GET) {
-    KVS_local_read(kv_ptr, op->value_to_read, &resp->type, ctx->t_id);
-    hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
-    signal_completion_to_client(op->session_id, op->index_to_req_array, ctx->t_id);
-    hr_ctx->all_sessions_stalled = false;
-    hr_ctx->stalled[op->session_id] = false;
+    hr_loc_read(ctx, kv_ptr, op);
   }
   else if (op->opcode == KVS_OP_PUT) {
     hr_local_inv(ctx, kv_ptr, op, resp, *write_i);
@@ -193,7 +215,6 @@ static inline void handle_trace_reqs(context_t *ctx,
     my_printf(red, "wrong Opcode in cache: %d, req %d \n", op->opcode, op_i);
     assert(0);
   }
-  resp->op = op;
 }
 
 
@@ -214,33 +235,30 @@ static inline void hr_KVS_batch_op_trace(context_t *ctx, uint16_t op_num)
   struct mica_bkt *bkt_ptr[HR_TRACE_BATCH];
   unsigned int tag[HR_TRACE_BATCH];
   mica_op_t *kv_ptr[HR_TRACE_BATCH];	/* Ptr to KV item in log */
-  /*
-   * We first lookup the key in the datastore. The first two @op_i loops work
-   * for both GETs and PUTs.
-   */
+
+
   for(op_i = 0; op_i < op_num; op_i++) {
     KVS_locate_one_bucket(op_i, bkt, &op[op_i].key, bkt_ptr, tag, kv_ptr, KVS);
   }
   KVS_locate_all_kv_pairs(op_num, tag, bkt_ptr, kv_ptr, KVS);
 
-  sw_prefetch_buf_op_keys(ctx);
-  //uint32_t r_push_ptr = hr_ctx->r_rob->push_ptr;
-  // the following variables used to validate atomicity between a lock-free read of an object
+  uint32_t buf_ops_num = hr_ctx->buf_ops->capacity;
   uint32_t write_i = 0;
-  for(op_i = 0; op_i < op_num; op_i++) {
-    KVS_check_key(kv_ptr[op_i], op[op_i].key, op_i);
-    handle_trace_reqs(ctx, kv_ptr[op_i], &op[op_i], &resp[op_i], &write_i, op_i);
-  }
 
+  //sw_prefetch_buf_op_keys(ctx);
 
-  if (hr_ctx->buf_ops->capacity == 0) return;
-  for (op_i = 0; op_i < hr_ctx->buf_ops->capacity; ++op_i) {
+  for (op_i = 0; op_i < buf_ops_num; ++op_i) {
     buf_op_t *buf_op = (buf_op_t *) get_fifo_pull_slot(hr_ctx->buf_ops);
+    check_state_with_allowed_flags(3, buf_op->op.opcode, KVS_OP_PUT, KVS_OP_GET);
     handle_trace_reqs(ctx, buf_op->kv_ptr, &buf_op->op, &resp[op_num + op_i], &write_i, op_i);
     fifo_incr_pull_ptr(hr_ctx->buf_ops);
     fifo_decrem_capacity(hr_ctx->buf_ops);
   }
 
+  for(op_i = 0; op_i < op_num; op_i++) {
+    KVS_check_key(kv_ptr[op_i], op[op_i].key, op_i);
+    handle_trace_reqs(ctx, kv_ptr[op_i], &op[op_i], &resp[op_i], &write_i, op_i);
+  }
 }
 
 static inline void hr_KVS_batch_op_invs(context_t *ctx)
@@ -270,8 +288,6 @@ static inline void hr_KVS_batch_op_invs(context_t *ctx)
   }
   KVS_locate_all_kv_pairs(op_num, tag, bkt_ptr, kv_ptr, KVS);
 
-  //uint32_t r_push_ptr = hr_ctx->r_rob->push_ptr;
-  // the following variables used to validate atomicity between a lock-free read of an object
   uint32_t write_i = 0;
   for(op_i = 0; op_i < op_num; op_i++) {
     KVS_check_key(kv_ptr[op_i], invs[op_i]->key, op_i);
