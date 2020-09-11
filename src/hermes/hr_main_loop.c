@@ -4,10 +4,6 @@
 
 #include "hr_inline_util.h"
 
-
-
-
-
 static inline void fill_inv(hr_inv_t *inv,
                             ctx_trace_op_t *op,
                             hr_w_rob_t *w_rob)
@@ -131,7 +127,8 @@ static inline void hr_commit_writes(context_t *ctx)
     while (w_rob->w_state == READY) {
       __builtin_prefetch(&w_rob->kv_ptr->seqlock, 0, 0);
       w_rob->w_state = INVALID;
-      if (ENABLE_ASSERTIONS) assert(write_num < HR_UPDATE_BATCH);
+      if (ENABLE_ASSERTIONS)
+        assert(write_num < HR_UPDATE_BATCH);
       ptrs_to_w_rob[write_num] = w_rob;
       //my_printf(green, "Commit sess %u write %lu, version: %lu \n",
       //          w_rob->sess_id, hr_ctx->committed_w_id[m_i] + write_num, w_rob->version);
@@ -327,6 +324,8 @@ inline void main_loop(context_t *ctx)
   while(true) {
 
     hr_batch_from_trace_to_KVS(ctx);
+
+
     ctx_send_broadcasts(ctx, INV_QP_ID);
     ctx_poll_incoming_messages(ctx, INV_QP_ID);
     ctx_send_acks(ctx, ACK_QP_ID);
@@ -336,6 +335,7 @@ inline void main_loop(context_t *ctx)
     ctx_poll_incoming_messages(ctx, COM_QP_ID);
 
     hr_commit_writes(ctx);
+
 
 
   }

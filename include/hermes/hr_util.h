@@ -9,7 +9,7 @@
 #include "hr_config.h"
 #include "network_context.h"
 #include <hr_inline_util.h>
-#include <trace_util.h>
+#include "../../../odlib/include/trace/trace_util.h"
 #include "init_func.h"
 
 void hr_stats(stats_ctx_t *ctx);

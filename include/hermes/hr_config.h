@@ -6,7 +6,7 @@
 #define ODYSSEY_HR_CONFIG_H
 
 
-#include <fifo.h>
+#include "../../../odlib/include/fifo/fifo.h"
 #include <hr_messages.h>
 #include <network_context.h>
 
@@ -36,9 +36,7 @@
 typedef enum{HR_V = 0, HR_INV, HR_INV_T, HR_W} key_state_t;
 
 struct mica_op {
-  // Cache-line -1
   uint8_t value[MICA_VALUE_SIZE];
-  // Cache-line -2
   struct key key;
   seqlock_t seqlock;
   uint64_t version;

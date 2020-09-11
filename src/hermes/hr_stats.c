@@ -56,29 +56,31 @@ void hr_stats(stats_ctx_t *ctx)
   memcpy(prev_w_stats, curr_w_stats, num_threads * (sizeof(struct thread_stats)));
   total_throughput = (all_clients_cache_hits) / seconds;
 
-  printf("---------------PRINT %d time elapsed %.2f---------------\n", print_count, seconds / MILLION);
-  my_printf(green, "SYSTEM MIOPS: %.2f \n", total_throughput);
-  for (int i = 0; i < num_threads; i++) {
-    my_printf(cyan, "T%d: ", i);
-    my_printf(yellow, "%.2f MIOPS, STALL: GID: %.2f/s, ACK/inv %.2f/s, COM/CREDIT %.2f/s", i,
-              all_stats.cache_hits_per_thread[i],
-              all_stats.stalled_gid[i],
-              all_stats.stalled_ack_inv[i],
-              all_stats.stalled_com_credit[i]);
+  if (!SHOW_STATS_LATENCY_STYLE) {
+    printf("---------------PRINT %d time elapsed %.2f---------------\n", print_count, seconds / MILLION);
+    my_printf(green, "SYSTEM MIOPS: %.2f \n", total_throughput);
+    for (int i = 0; i < num_threads; i++) {
+      my_printf(cyan, "T%d: ", i);
+      my_printf(yellow, "%.2f MIOPS, STALL: GID: %.2f/s, ACK/inv %.2f/s, COM/CREDIT %.2f/s", i,
+                all_stats.cache_hits_per_thread[i],
+                all_stats.stalled_gid[i],
+                all_stats.stalled_ack_inv[i],
+                all_stats.stalled_com_credit[i]);
 
-    my_printf(yellow, ", BATCHES: GID %.2f, Coms %.2f, invs %.2f ",
-              all_stats.batch_size_per_thread[i],
-              all_stats.com_batch_size[i],
-              all_stats.inv_batch_size[i]);
+      my_printf(yellow, ", BATCHES: GID %.2f, Coms %.2f, invs %.2f ",
+                all_stats.batch_size_per_thread[i],
+                all_stats.com_batch_size[i],
+                all_stats.inv_batch_size[i]);
 
-    my_printf(yellow, ", BATCHES: Acks %.2f, Ws %.2f ",
-              all_stats.ack_batch_size[i],
-              all_stats.write_batch_size[i]);
+      my_printf(yellow, ", BATCHES: Acks %.2f, Ws %.2f ",
+                all_stats.ack_batch_size[i],
+                all_stats.write_batch_size[i]);
 
-    //if (i > 0 && i % 2 == 0)
+      //if (i > 0 && i % 2 == 0)
+      printf("\n");
+    }
     printf("\n");
+    printf("---------------------------------------\n");
   }
-  printf("\n");
-  printf("---------------------------------------\n");
-  my_printf(green, "SYSTEM MIOPS: %.2f \n", total_throughput);
+  my_printf(green, "%u. SYSTEM MIOPS: %.2f \n", print_count, total_throughput);
 }
