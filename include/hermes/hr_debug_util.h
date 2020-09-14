@@ -149,7 +149,7 @@ static inline void check_w_rob_when_handling_an_inv(ptrs_to_inv_t *ptrs_to_inv,
                                                     uint8_t inv_i)
 {
   if (ENABLE_ASSERTIONS) {
-    hr_w_rob_t *w_rob = (hr_w_rob_t *) get_fifo_push_slot(w_rob_fifo);
+    hr_w_rob_t *w_rob = (hr_w_rob_t *) get_fifo_push_relative_slot(w_rob_fifo, inv_i);
     assert(w_rob->w_state == INVALID);
     w_rob->l_id = inv_mes->l_id + inv_i;
     assert(ptrs_to_inv->polled_invs < MAX_INCOMING_INV);

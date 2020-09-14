@@ -37,17 +37,12 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
 
     ctx_fill_trace_op(ctx, &trace[hr_ctx->trace_iter], &ops[op_i], working_session);
     hr_ctx->stalled[working_session] = true;
-    while (!pull_request_from_this_session(hr_ctx->stalled[working_session],
-                                           (uint16_t) working_session, ctx->t_id)) {
 
-      MOD_INCR(working_session, SESSIONS_PER_THREAD);
-      if (working_session == hr_ctx->last_session) {
-        passed_over_all_sessions = true;
-        // If clients are used the condition does not guarantee that sessions are stalled
-        if (!ENABLE_CLIENTS) hr_ctx->all_sessions_stalled = true;
-        break;
-      }
-    }
+    passed_over_all_sessions =
+      ctx_find_next_working_session(ctx, &working_session,
+                                    hr_ctx->stalled,
+                                    hr_ctx->last_session,
+                                    &hr_ctx->all_sessions_stalled);
     if (!ENABLE_CLIENTS) {
       hr_ctx->trace_iter++;
       if (trace[hr_ctx->trace_iter].opcode == NOP) hr_ctx->trace_iter = 0;
