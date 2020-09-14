@@ -318,7 +318,7 @@ inline bool hr_commit_handler(context_t *ctx)
 }
 
 
-inline void main_loop(context_t *ctx)
+inline void hr_main_loop(context_t *ctx)
 {
   if (ctx->t_id == 0) my_printf(yellow, "Hermes main loop \n");
   while(true) {

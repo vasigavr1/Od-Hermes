@@ -38,6 +38,6 @@ bool hr_commit_handler(context_t *ctx);
 ////------------------------------MAIN LOOP -----------------------------
 ////---------------------------------------------------------------------------*/
 
-void main_loop(context_t *ctx);
+void hr_main_loop(context_t *ctx);
 
 #endif //ODYSSEY_HR_INLINE_UTIL_H

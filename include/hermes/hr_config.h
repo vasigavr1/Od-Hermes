@@ -6,7 +6,7 @@
 #define ODYSSEY_HR_CONFIG_H
 
 
-#include "../../../odlib/include/fifo/fifo.h"
+#include "fifo.h"
 #include <hr_messages.h>
 #include <network_context.h>
 
@@ -90,7 +90,6 @@ typedef struct w_rob {
   uint8_t acks_seen;
   uint8_t val_len;
   bool inv_applied;
-
 
 } hr_w_rob_t;
 
