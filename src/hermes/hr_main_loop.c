@@ -155,7 +155,7 @@ static inline void hr_commit_writes(context_t *ctx)
 
 //Inserts a LOCAL inv to the buffer
 inline void insert_inv_help(context_t *ctx, void* inv_ptr,
-                                   void *source, uint32_t source_flag)
+                            void *source, uint32_t source_flag)
 {
   per_qp_meta_t *qp_meta = &ctx->qp_meta[INV_QP_ID];
   fifo_t *send_fifo = qp_meta->send_fifo;

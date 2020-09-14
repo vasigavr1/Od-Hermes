@@ -136,7 +136,7 @@ static inline void hr_local_inv(context_t *ctx,
 
   if (success) {
     init_w_rob_on_loc_inv(ctx, kv_ptr, op, new_version, write_i);
-    ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0);
+    ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0, 0);
   }
   else {
     insert_buffered_op(ctx, kv_ptr, op, true);
