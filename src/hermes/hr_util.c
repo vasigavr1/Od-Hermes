@@ -91,9 +91,9 @@ void hr_init_qp_meta(context_t *ctx)
                      INV_CREDITS, INV_MES_HEADER,
                      "send val", "recv val");
 
-  crate_ack_qp_meta(&qp_meta[ACK_QP_ID],
-                    INV_QP_ID, REM_MACH_NUM,
-                    REM_MACH_NUM, INV_CREDITS);
+  create_ack_qp_meta(&qp_meta[ACK_QP_ID],
+                     INV_QP_ID, REM_MACH_NUM,
+                     REM_MACH_NUM, INV_CREDITS);
 
   create_per_qp_meta(&qp_meta[COM_QP_ID], COM_WRS,
                      RECV_COM_WRS, SEND_BCAST_RECV_BCAST, RECV_SEC_ROUND,
