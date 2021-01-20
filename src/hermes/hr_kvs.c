@@ -19,8 +19,6 @@ static inline void sw_prefetch_buf_op_keys(context_t *ctx)
   }
 }
 
-
-
 static inline void init_w_rob_on_loc_inv(context_t *ctx,
                                          mica_op_t *kv_ptr,
                                          ctx_trace_op_t *op,
@@ -29,7 +27,7 @@ static inline void init_w_rob_on_loc_inv(context_t *ctx,
 {
   hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
   hr_w_rob_t *w_rob = (hr_w_rob_t *)
-    get_fifo_push_slot(hr_ctx->loc_w_rob);
+    get_fifo_push_relative_slot(hr_ctx->loc_w_rob, write_i);
   if (ENABLE_ASSERTIONS) {
     assert(w_rob->w_state == INVALID);
     w_rob->l_id = hr_ctx->inserted_w_id[ctx->m_id];
@@ -47,6 +45,8 @@ static inline void init_w_rob_on_loc_inv(context_t *ctx,
               hr_ctx->loc_w_rob->push_ptr);
   fifo_increm_capacity(hr_ctx->loc_w_rob);
 }
+
+
 
 static inline void init_w_rob_on_rem_inv(context_t *ctx,
                                          mica_op_t *kv_ptr,
@@ -112,7 +112,7 @@ static inline void insert_buffered_op(context_t *ctx,
 static inline void hr_local_inv(context_t *ctx,
                                 mica_op_t *kv_ptr,
                                 ctx_trace_op_t *op,
-                                uint32_t write_i)
+                                uint32_t *write_i)
 {
   bool success = false;
   uint64_t new_version;
@@ -135,8 +135,14 @@ static inline void hr_local_inv(context_t *ctx,
   }
 
   if (success) {
-    init_w_rob_on_loc_inv(ctx, kv_ptr, op, new_version, write_i);
-    ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0, 0);
+    init_w_rob_on_loc_inv(ctx, kv_ptr, op, new_version, *write_i);
+    if (INSERT_WRITES_FROM_KVS)
+      ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0, 0);
+    else {
+      hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
+      hr_ctx->ptrs_to_inv->ptr_to_ops[*write_i] = (hr_inv_t *) op;
+      (*write_i)++;
+    }
   }
   else {
     insert_buffered_op(ctx, kv_ptr, op, true);
@@ -212,8 +218,8 @@ static inline void handle_trace_reqs(context_t *ctx,
     hr_loc_read(ctx, kv_ptr, op);
   }
   else if (op->opcode == KVS_OP_PUT) {
-    hr_local_inv(ctx, kv_ptr, op,  *write_i);
-    (*write_i)++;
+    hr_local_inv(ctx, kv_ptr, op,  write_i);
+
   }
   else if (ENABLE_ASSERTIONS) {
     my_printf(red, "wrong Opcode in cache: %d, req %d \n", op->opcode, op_i);
@@ -263,6 +269,8 @@ inline void hr_KVS_batch_op_trace(context_t *ctx, uint16_t op_num)
     KVS_check_key(kv_ptr[op_i], op[op_i].key, op_i);
     handle_trace_reqs(ctx, kv_ptr[op_i], &op[op_i], &write_i, op_i);
   }
+  if (!INSERT_WRITES_FROM_KVS)
+    hr_ctx->ptrs_to_inv->polled_invs = (uint16_t) write_i;
 }
 
 inline void hr_KVS_batch_op_invs(context_t *ctx)

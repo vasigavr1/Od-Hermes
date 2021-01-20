@@ -15,6 +15,7 @@
 #define HR_PENDING_WRITES (SESSIONS_PER_THREAD + 1)
 #define HR_UPDATE_BATCH (HR_PENDING_WRITES * MACHINE_NUM)
 #define MAX_INCOMING_INV (REM_MACH_NUM * HR_W_ROB_SIZE)
+#define INSERT_WRITES_FROM_KVS 0
 
 #define QP_NUM 3
 #define INV_QP_ID 0
@@ -62,13 +63,6 @@ typedef struct hr_resp {
  * ----------------RESERVATION STATIONS-----------
  * ----------------------------------------------*/
 typedef enum op_state {INVALID, SEMIVALID, VALID, SENT, READY, SEND_COMMITTS} w_state_t;
-//typedef enum {NOT_USED, LOCAL_PREP, REMOTE_WRITE} source_t;
-//typedef struct ptrs_to_reads {
-//  uint16_t polled_reads;
-//  hr_read_t **ptr_to_ops;
-//  hr_r_mes_t **ptr_to_r_mes;
-//  bool *coalesce_r_rep;
-//} ptrs_to_r_t;
 
 typedef struct ptrs_to_invs {
   uint16_t polled_invs;

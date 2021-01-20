@@ -7,7 +7,7 @@
 
 
 #define INV_CREDITS 3
-#define INV_COALESCE 25
+#define INV_COALESCE 20
 //#define MAX_INV_SIZE 1212
 
 #define MAX_INV_WRS (MESSAGES_IN_BCAST_BATCH)

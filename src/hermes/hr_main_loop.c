@@ -15,6 +15,8 @@ static inline void fill_inv(hr_inv_t *inv,
 
 }
 
+
+
 static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
 {
   hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
@@ -52,7 +54,12 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
   hr_ctx->last_session = (uint16_t) working_session;
   t_stats[ctx->t_id].cache_hits_per_thread += op_i;
   hr_KVS_batch_op_trace(ctx, op_i);
-
+  if (!INSERT_WRITES_FROM_KVS) {
+    for (int i = 0; i < hr_ctx->ptrs_to_inv->polled_invs; ++i) {
+      ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1,
+                     false, hr_ctx->ptrs_to_inv->ptr_to_ops[i], 0, 0);
+    }
+  }
 }
 
 
