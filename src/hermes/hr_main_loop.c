@@ -324,21 +324,13 @@ inline void hr_main_loop(context_t *ctx)
 {
   if (ctx->t_id == 0) my_printf(yellow, "Hermes main loop \n");
   while(true) {
-
     hr_batch_from_trace_to_KVS(ctx);
-
-
     ctx_send_broadcasts(ctx, INV_QP_ID);
     ctx_poll_incoming_messages(ctx, INV_QP_ID);
     ctx_send_acks(ctx, ACK_QP_ID);
     ctx_poll_incoming_messages(ctx, ACK_QP_ID);
-
     ctx_send_broadcasts(ctx, COM_QP_ID);
     ctx_poll_incoming_messages(ctx, COM_QP_ID);
-
     hr_commit_writes(ctx);
-
-
-
   }
 }
