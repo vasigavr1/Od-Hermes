@@ -6,8 +6,8 @@
 #define ODYSSEY_HR_INLINE_UTIL_H
 
 
-#include <inline_util.h>
-#include "network_context.h"
+#include <od_inline_util.h>
+#include "od_network_context.h"
 #include "hr_kvs_util.h"
 #include "hr_debug_util.h"
 //#include "hr_reserve_stations.h"

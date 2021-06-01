@@ -5,9 +5,9 @@
 #ifndef ODYSSEY_HR_KVS_UTIL_H
 #define ODYSSEY_HR_KVS_UTIL_H
 
-#include <network_context.h>
-#include <netw_func.h>
-#include "kvs.h"
+#include <od_network_context.h>
+#include <od_netw_func.h>
+#include "od_kvs.h"
 #include "hr_config.h"
 
 

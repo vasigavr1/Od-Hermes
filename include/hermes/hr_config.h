@@ -6,9 +6,9 @@
 #define ODYSSEY_HR_CONFIG_H
 
 
-#include "fifo.h"
+#include "od_fifo.h"
 #include <hr_messages.h>
-#include <network_context.h>
+#include <od_network_context.h>
 
 #define HR_W_ROB_SIZE SESSIONS_PER_THREAD
 #define HR_TRACE_BATCH SESSIONS_PER_THREAD
