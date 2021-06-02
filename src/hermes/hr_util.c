@@ -12,11 +12,11 @@ void hr_static_assert_compile_parameters()
 
 void hr_init_functionality(int argc, char *argv[])
 {
-  generic_static_assert_compile_parameters();
+  od_generic_static_assert_compile_parameters();
   hr_static_assert_compile_parameters();
-  generic_init_globals(QP_NUM);
+  od_generic_init_globals(QP_NUM);
   //hr_init_globals();
-  handle_program_inputs(argc, argv);
+  od_handle_program_inputs(argc, argv);
 }
 
 

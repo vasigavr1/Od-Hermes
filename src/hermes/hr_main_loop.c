@@ -29,8 +29,8 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
   if (all_sessions_are_stalled(ctx, hr_ctx->all_sessions_stalled,
                                &hr_ctx->stalled_sessions_dbg_counter))
     return;
-  if (!find_starting_session(ctx, hr_ctx->last_session,
-                             hr_ctx->stalled, &working_session)) return;
+  if (!od_find_starting_session(ctx, hr_ctx->last_session,
+                                hr_ctx->stalled, &working_session)) return;
 
   bool passed_over_all_sessions = false;
 
