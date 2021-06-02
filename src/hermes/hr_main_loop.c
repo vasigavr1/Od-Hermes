@@ -37,14 +37,14 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
   /// main loop
   while (op_i < HR_TRACE_BATCH && !passed_over_all_sessions) {
 
-    ctx_fill_trace_op(ctx, &trace[hr_ctx->trace_iter], &ops[op_i], working_session);
+    od_fill_trace_op(ctx, &trace[hr_ctx->trace_iter], &ops[op_i], working_session);
     hr_ctx->stalled[working_session] = true;
 
     passed_over_all_sessions =
-      ctx_find_next_working_session(ctx, &working_session,
-                                    hr_ctx->stalled,
-                                    hr_ctx->last_session,
-                                    &hr_ctx->all_sessions_stalled);
+        od_find_next_working_session(ctx, &working_session,
+                                     hr_ctx->stalled,
+                                     hr_ctx->last_session,
+                                     &hr_ctx->all_sessions_stalled);
     if (!ENABLE_CLIENTS) {
       hr_ctx->trace_iter++;
       if (trace[hr_ctx->trace_iter].opcode == NOP) hr_ctx->trace_iter = 0;
@@ -56,8 +56,8 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
   hr_KVS_batch_op_trace(ctx, op_i);
   if (!INSERT_WRITES_FROM_KVS) {
     for (int i = 0; i < hr_ctx->ptrs_to_inv->polled_invs; ++i) {
-      ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1,
-                     false, hr_ctx->ptrs_to_inv->ptr_to_ops[i], 0, 0);
+      od_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1,
+                    false, hr_ctx->ptrs_to_inv->ptr_to_ops[i], 0, 0);
     }
   }
 }
@@ -327,7 +327,7 @@ inline void hr_main_loop(context_t *ctx)
     hr_batch_from_trace_to_KVS(ctx);
     ctx_send_broadcasts(ctx, INV_QP_ID);
     ctx_poll_incoming_messages(ctx, INV_QP_ID);
-    ctx_send_acks(ctx, ACK_QP_ID);
+    od_send_acks(ctx, ACK_QP_ID);
     ctx_poll_incoming_messages(ctx, ACK_QP_ID);
     ctx_send_broadcasts(ctx, COM_QP_ID);
     ctx_poll_incoming_messages(ctx, COM_QP_ID);

@@ -137,7 +137,7 @@ static inline void hr_local_inv(context_t *ctx,
   if (success) {
     init_w_rob_on_loc_inv(ctx, kv_ptr, op, new_version, *write_i);
     if (INSERT_WRITES_FROM_KVS)
-      ctx_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0, 0);
+      od_insert_mes(ctx, INV_QP_ID, (uint32_t) INV_SIZE, 1, false, op, 0, 0);
     else {
       hr_ctx_t *hr_ctx = (hr_ctx_t *) ctx->appl_ctx;
       hr_ctx->ptrs_to_inv->ptr_to_ops[*write_i] = (hr_inv_t *) op;
@@ -266,7 +266,7 @@ inline void hr_KVS_batch_op_trace(context_t *ctx, uint16_t op_num)
   }
 
   for(op_i = 0; op_i < op_num; op_i++) {
-    KVS_check_key(kv_ptr[op_i], op[op_i].key, op_i);
+    od_KVS_check_key(kv_ptr[op_i], op[op_i].key, op_i);
     handle_trace_reqs(ctx, kv_ptr[op_i], &op[op_i], &write_i, op_i);
   }
   if (!INSERT_WRITES_FROM_KVS)
@@ -298,7 +298,7 @@ inline void hr_KVS_batch_op_invs(context_t *ctx)
   KVS_locate_all_kv_pairs(op_num, tag, bkt_ptr, kv_ptr, KVS);
 
   for(op_i = 0; op_i < op_num; op_i++) {
-    KVS_check_key(kv_ptr[op_i], invs[op_i]->key, op_i);
+    od_KVS_check_key(kv_ptr[op_i], invs[op_i]->key, op_i);
     hr_rem_inv(ctx, kv_ptr[op_i], inv_mes[op_i], invs[op_i]);
   }
 }
