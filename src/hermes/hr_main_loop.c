@@ -183,8 +183,6 @@ inline void insert_inv_help(context_t *ctx, void* inv_ptr,
     inv_mes->l_id = hr_ctx->inserted_w_id[ctx->m_id];
     fifo_set_push_backward_ptr(send_fifo, hr_ctx->loc_w_rob->push_ptr);
   }
-
-
   // Bookkeeping
   w_rob->w_state = VALID;
   fifo_incr_push_ptr(hr_ctx->loc_w_rob);
@@ -320,7 +318,7 @@ inline bool hr_commit_handler(context_t *ctx)
 }
 
 
-inline void hr_main_loop(context_t *ctx)
+_Noreturn inline void hr_main_loop(context_t *ctx)
 {
   if (ctx->t_id == 0) my_printf(yellow, "Hermes main loop \n");
   while(true) {
