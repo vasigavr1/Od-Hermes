@@ -56,7 +56,7 @@ void hr_stats(stats_ctx_t *ctx)
   memcpy(prev_w_stats, curr_w_stats, num_threads * (sizeof(struct thread_stats)));
   total_throughput = (all_clients_cache_hits) / seconds;
 
-  if (!SHOW_STATS_LATENCY_STYLE) {
+  if (!SHOW_AGGREGATE_STATS) {
     printf("---------------PRINT %d time elapsed %.2f---------------\n", print_count, seconds / MILLION);
     my_printf(green, "SYSTEM MIOPS: %.2f \n", total_throughput);
     for (int i = 0; i < num_threads; i++) {
