@@ -18,9 +18,9 @@ void hr_stats(stats_ctx_t *ctx)
   uint64_t all_clients_cache_hits = 0;
   seconds *= MILLION; // compute only MIOPS
   for (int i = 0; i < num_threads; i++) {
-    all_clients_cache_hits += curr_w_stats[i].cache_hits_per_thread - prev_w_stats[i].cache_hits_per_thread;
-    all_stats.cache_hits_per_thread[i] =
-      (curr_w_stats[i].cache_hits_per_thread - prev_w_stats[i].cache_hits_per_thread) / seconds;
+    all_clients_cache_hits += curr_w_stats[i].total_reqs - prev_w_stats[i].total_reqs;
+    all_stats.total_reqs[i] =
+      (curr_w_stats[i].total_reqs - prev_w_stats[i].total_reqs) / seconds;
 
     all_stats.stalled_gid[i] = (curr_w_stats[i].stalled_gid - prev_w_stats[i].stalled_gid) / seconds;
     all_stats.stalled_ack_inv[i] = (curr_w_stats[i].stalled_ack_inv - prev_w_stats[i].stalled_ack_inv) / seconds;
@@ -62,7 +62,7 @@ void hr_stats(stats_ctx_t *ctx)
     for (int i = 0; i < num_threads; i++) {
       my_printf(cyan, "T%d: ", i);
       my_printf(yellow, "%.2f MIOPS, STALL: GID: %.2f/s, ACK/inv %.2f/s, COM/CREDIT %.2f/s", i,
-                all_stats.cache_hits_per_thread[i],
+                all_stats.total_reqs[i],
                 all_stats.stalled_gid[i],
                 all_stats.stalled_ack_inv[i],
                 all_stats.stalled_com_credit[i]);

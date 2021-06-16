@@ -52,7 +52,7 @@ static inline void hr_batch_from_trace_to_KVS(context_t *ctx)
     op_i++;
   }
   hr_ctx->last_session = (uint16_t) working_session;
-  t_stats[ctx->t_id].cache_hits_per_thread += op_i;
+  t_stats[ctx->t_id].total_reqs += op_i;
   hr_KVS_batch_op_trace(ctx, op_i);
   if (!INSERT_WRITES_FROM_KVS) {
     for (int i = 0; i < hr_ctx->ptrs_to_inv->polled_invs; ++i) {
